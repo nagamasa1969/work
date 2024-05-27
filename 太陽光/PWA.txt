@@ -1,0 +1,109 @@
+SET 晴 TO $'''晴'''
+SET 曇 TO $'''曇'''
+SET み TO $'''み'''
+SET 雪 TO $'''雪'''
+SET 雨 TO $'''雨'''
+SET 霧 TO $'''霧'''
+SET 大 TO $'''大'''
+Display.InputDialog Title: $'''年''' Message: $'''年''' DefaultValue: 2024 InputType: Display.InputType.SingleLine IsTopMost: False UserInput=> UserInput ButtonPressed=> ButtonPressed
+IF ButtonPressed = $'''Cancel''' THEN
+    EXIT Code: 0
+END
+Display.InputDialog Title: $'''月''' Message: $'''月（MM）''' DefaultValue: $'''01''' InputType: Display.InputType.SingleLine IsTopMost: False UserInput=> UserInput2 ButtonPressed=> ButtonPressed
+IF ButtonPressed = $'''Cancel''' THEN
+    EXIT Code: 0
+END
+Display.SelectFileDialog.SelectFile Title: $'''太陽光発電ファイル''' FileFilter: $'''*.xlsm''' IsTopMost: True CheckIfFileExists: True SelectedFile=> SelectedFile ButtonPressed=> ButtonPressed2
+IF ButtonPressed2 = $'''Cancel''' THEN
+    EXIT Code: 0
+END
+SET 年 TO UserInput
+SET 月 TO UserInput2
+WebAutomation.LaunchEdge.LaunchEdge Url: $'''https://www.data.jma.go.jp/obd/stats/etrn/view/daily_s1.php?prec_no=33&block_no=47584&year=%年%&month=%月%&day=&view=''' WindowState: WebAutomation.BrowserWindowState.Minimized ClearCache: False ClearCookies: False WaitForPageToLoadTimeout: 60 Timeout: 60 BrowserInstance=> Browser
+DISABLE WebAutomation.LaunchEdge.LaunchEdge Url: $'''https://www.data.jma.go.jp/obd/stats/etrn/view/daily_s1.php?prec_no=33&block_no=47584&year=2023&month=12&day=&view=''' WindowState: WebAutomation.BrowserWindowState.Normal ClearCache: False ClearCookies: False WaitForPageToLoadTimeout: 60 Timeout: 60 BrowserInstance=> Browser
+DISABLE WebAutomation.GetDetailsOfWebPage BrowserInstance: Browser DetailsType: WebAutomation.DetailsType.Text Details=> WebPageProperty2
+WebAutomation.GetDetailsOfWebPage BrowserInstance: Browser DetailsType: WebAutomation.DetailsType.Source Details=> WebPageProperty
+# HTMLから必要な行を取得
+Text.SplitText.SplitWithDelimiter Text: WebPageProperty CustomDelimiter: $'''<tr class=\"mtx\" style=\"text-align:right;\">''' IsRegEx: False Result=> TextList
+SET i TO 0
+# 必要な行から天気の要素を取得
+Variables.CreateNewList List=> 前半
+Variables.CreateNewList List=> 後半
+LOOP FOREACH CurrentItem IN TextList
+    IF i <> 0 THEN
+        Text.SplitText.SplitWithDelimiter Text: CurrentItem CustomDelimiter: $'''<td''' IsRegEx: False Result=> TextList1
+        Variables.AddItemToList Item: TextList1[20] List: 前半
+        Variables.AddItemToList Item: TextList1[21] List: 後半
+    END
+    Variables.IncreaseVariable Value: i IncrementValue: 1
+END
+# 天気の成型
+SET tmpStr TO $'''class=\"data_0_0\" style=\"text-align:left\">'''
+Variables.CreateNewList List=> 前半成型後
+Variables.CreateNewList List=> 後半成型後
+# 前半
+LOOP FOREACH CurrentItem2 IN 前半
+    Text.Replace Text: CurrentItem2 TextToFind: tmpStr IsRegEx: False IgnoreCase: False ReplaceWith: $'''%''%''' ActivateEscapeSequences: False Result=> Replaced
+    Text.GetSubtext.GetSubtext Text: Replaced CharacterPosition: 1 NumberOfChars: 1 Subtext=> Subtext
+    SWITCH Subtext
+        CASE = 晴
+            SET 天気 TO 晴
+        CASE = み
+            SET 天気 TO $'''霙'''
+        CASE StartsWith(雪, False)
+            SET 天気 TO 雪
+        CASE StartsWith(雨, False)
+            SET 天気 TO 雨
+        CASE StartsWith(曇, False)
+            SET 天気 TO 曇
+        CASE StartsWith(霧, False)
+            SET 天気 TO $'''霧'''
+        CASE StartsWith(大, False)
+            Text.GetSubtext.GetSubtext Text: Replaced CharacterPosition: 1 NumberOfChars: 2 Subtext=> Subtext
+            SET 天気 TO Subtext
+        DEFAULT
+            SET 天気 TO $'''判定不可'''
+    END
+    Variables.AddItemToList Item: 天気 List: 前半成型後
+END
+# 後半
+LOOP FOREACH CurrentItem3 IN 後半
+    Text.Replace Text: CurrentItem2 TextToFind: tmpStr IsRegEx: False IgnoreCase: False ReplaceWith: $'''%''%''' ActivateEscapeSequences: False Result=> Replaced
+    Text.GetSubtext.GetSubtext Text: Replaced CharacterPosition: 1 NumberOfChars: 1 Subtext=> Subtext
+    SWITCH Subtext
+        CASE StartsWith(晴, False)
+            SET 天気 TO 晴
+        CASE StartsWith(み, False)
+            SET 天気 TO $'''霙'''
+        CASE StartsWith(雪, False)
+            SET 天気 TO 雪
+        CASE StartsWith(雨, False)
+            SET 天気 TO 雨
+        CASE StartsWith(曇, False)
+            SET 天気 TO 曇
+        CASE StartsWith(霧, False)
+            SET 天気 TO $'''霧'''
+        DEFAULT
+            SET 天気 TO $'''判定不可'''
+    END
+    Variables.AddItemToList Item: 天気 List: 後半成型後
+END
+SET M月 TO 0
+Text.ToNumber Text: 月 Number=> TextAsNumber
+SET M月 TO $'''%TextAsNumber%月'''
+# Excelに書き込み
+Excel.LaunchExcel.LaunchAndOpenUnderExistingProcess Path: SelectedFile Visible: True ReadOnly: False Instance=> ExcelInstance
+Excel.SetActiveWorksheet.ActivateWorksheetByName Instance: ExcelInstance Name: M月
+SET row TO 7
+LOOP FOREACH CurrentItem4 IN 前半成型後
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: CurrentItem4 Column: $'''F''' Row: row
+    Variables.IncreaseVariable Value: row IncrementValue: 1
+END
+SET row TO 7
+LOOP FOREACH CurrentItem4 IN 後半成型後
+    Excel.WriteToExcel.WriteCell Instance: ExcelInstance Value: CurrentItem4 Column: $'''G''' Row: row
+    Variables.IncreaseVariable Value: row IncrementValue: 1
+END
+Excel.CloseExcel.CloseAndSave Instance: ExcelInstance
+WebAutomation.CloseWebBrowser BrowserInstance: Browser
+Display.ShowMessageDialog.ShowMessage Title: $'''完了''' Message: $'''完了''' Icon: Display.Icon.Information Buttons: Display.Buttons.OK DefaultButton: Display.DefaultButton.Button1 IsTopMost: False ButtonPressed=> ButtonPressed3
